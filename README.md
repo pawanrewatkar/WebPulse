@@ -106,5 +106,3 @@ tests/      unit, integration, e2e tests and the local fixture website
 ```
 
 Tech stack: Next.js, React, TypeScript, Tailwind CSS, Playwright, SQLite (better-sqlite3), Pixelmatch, Sharp, ExcelJS, PDFKit, Vitest.
-
-See [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) for completed features, known limitations and next steps, and [MEMORY.md](MEMORY.md) for design decisions and development notes.
