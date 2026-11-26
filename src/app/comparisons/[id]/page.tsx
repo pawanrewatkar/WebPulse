@@ -17,7 +17,7 @@ export default async function ComparisonPage({ params }: { params: Promise<{ id:
   return (
     <div className="space-y-5">
       <PageHeader
-        title={`Comparison #${cmp.id} · ${website?.name ?? ""}`}
+        title={`${website?.name ?? "Website"} – compared ${fmtDate(cmp.createdAt)}`}
         subtitle={
           <>
             Baseline v{baseline?.version} ({fmtDate(baseline?.finishedAt ?? baseline?.createdAt)}) → current crawl {fmtDate(current?.finishedAt ?? current?.createdAt)} ·{" "}
@@ -38,13 +38,13 @@ export default async function ComparisonPage({ params }: { params: Promise<{ id:
       {cmp.error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{cmp.error}</div>}
       {s && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
-          <Stat label="Changes" value={s.totalChanges} />
-          <Stat label="Critical" value={s.bySeverity.critical ?? 0} tone={s.bySeverity.critical ? "text-red-700" : undefined} />
-          <Stat label="High" value={s.bySeverity.high ?? 0} tone={s.bySeverity.high ? "text-orange-700" : undefined} />
-          <Stat label="Pages changed" value={`${s.pagesChanged}/${s.pages.length}`} />
-          <Stat label="New pages" value={s.pagesNew} />
-          <Stat label="Removed (404/410)" value={s.pagesRemoved} tone={s.pagesRemoved ? "text-red-700" : undefined} />
-          <Stat label="Crawl failures" value={s.pagesFailed} tone={s.pagesFailed ? "text-red-700" : undefined} />
+          <Stat label="Changes" value={s.totalChanges} accent="indigo" />
+          <Stat label="Critical" value={s.bySeverity.critical ?? 0} tone={s.bySeverity.critical ? "text-red-700" : undefined} accent="rose" />
+          <Stat label="High" value={s.bySeverity.high ?? 0} tone={s.bySeverity.high ? "text-orange-700" : undefined} accent="amber" />
+          <Stat label="Pages changed" value={`${s.pagesChanged}/${s.pages.length}`} accent="violet" />
+          <Stat label="New pages" value={s.pagesNew} accent="sky" />
+          <Stat label="Removed (404/410)" value={s.pagesRemoved} tone={s.pagesRemoved ? "text-red-700" : undefined} accent="fuchsia" />
+          <Stat label="Crawl failures" value={s.pagesFailed} tone={s.pagesFailed ? "text-red-700" : undefined} accent="slate" />
         </div>
       )}
       {s && s.pagesFailed > 0 && (
@@ -53,7 +53,21 @@ export default async function ComparisonPage({ params }: { params: Promise<{ id:
           <strong> not</strong> reported as removed. Re-run the comparison or check them manually.
         </div>
       )}
-      {s?.autoIgnored ? <p className="text-xs text-gray-500">{s.autoIgnored} change(s) were automatically ignored by your “always ignore” rules (shown when “include ignored” is ticked).</p> : null}
+      {s?.existingBrokenLinks && s.existingBrokenLinks.length > 0 && (
+        <details className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          <summary className="cursor-pointer font-medium">
+            Existing issues: {s.existingBrokenLinks.length} broken link(s) were already broken when the baseline was saved (not counted as changes)
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {s.existingBrokenLinks.map((l) => (
+              <li key={l.url} className="break-all">
+                <a href={l.url} target="_blank" rel="noreferrer" className="underline">{l.url}</a> → {l.status ? `HTTP ${l.status}` : l.error ?? "request failed"}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {s?.autoIgnored ?<p className="text-xs text-gray-500">{s.autoIgnored} change(s) were automatically ignored by your “always ignore” rules (shown when “include ignored” is ticked).</p> : null}
       {cmp.status === "completed" && s && <ComparisonView comparisonId={cmp.id} websiteId={cmp.websiteId} baselineRunId={cmp.baselineRunId} currentRunId={cmp.currentRunId} pages={s.pages} baseUrl={website?.baseUrl ?? ""} />}
     </div>
   );

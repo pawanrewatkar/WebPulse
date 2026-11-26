@@ -15,6 +15,10 @@ export interface Storage {
   exists(key: string): Promise<boolean>;
   /** Absolute filesystem path (local storage only; used for streaming downloads and image libs). */
   resolve(key: string): string;
+  /** Deletes a file or a whole folder (prefix). Missing paths are ignored. */
+  remove(key: string): Promise<void>;
+  /** Names of the entries directly inside a folder (empty if it does not exist). */
+  list(prefix: string): Promise<string[]>;
 }
 
 const SAFE_KEY = /^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/;
@@ -46,6 +50,16 @@ class LocalStorage implements Storage {
   }
   readText(key: string) {
     return fs.promises.readFile(this.resolve(key), "utf8");
+  }
+  async remove(key: string) {
+    await fs.promises.rm(this.resolve(key), { recursive: true, force: true });
+  }
+  async list(prefix: string) {
+    try {
+      return await fs.promises.readdir(this.resolve(prefix));
+    } catch {
+      return [];
+    }
   }
   async exists(key: string) {
     try {

@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Job, JobLog } from "@core/types";
 import { StatusBadge } from "./ui";
 
+const JOB_TYPE_LABEL: Record<string, string> = { baseline: "Baseline", compare: "Comparison", capture: "Capture", recompare: "Re-comparison" };
+
 /** Polls a job until it finishes; shows progress, message and (optionally) live logs. */
 export default function JobProgress({ jobId, showLogs = false, refreshOnDone = true }: { jobId: number; showLogs?: boolean; refreshOnDone?: boolean }) {
   const router = useRouter();
@@ -46,7 +48,7 @@ export default function JobProgress({ jobId, showLogs = false, refreshOnDone = t
     };
   }, [jobId, refreshOnDone, router]);
 
-  if (!job) return <div className="text-sm text-gray-500">Loading job #{jobId}…</div>;
+  if (!job) return <div className="text-sm text-gray-500">Loading job…</div>;
   const pct = Math.round((job.progress ?? 0) * 100);
   const active = job.status === "queued" || job.status === "running";
   const result = job.result as Record<string, unknown> | null;
@@ -54,8 +56,7 @@ export default function JobProgress({ jobId, showLogs = false, refreshOnDone = t
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Link href={`/jobs/${job.id}`} className="font-medium text-blue-700 hover:underline">Job #{job.id}</Link>
-        <span className="text-gray-500">{job.type}</span>
+        <Link href={`/jobs/${job.id}`} className="font-medium text-blue-700 hover:underline" title="Open job details and log">{JOB_TYPE_LABEL[job.type] ?? job.type} job</Link>
         <span data-testid="job-status" data-status={job.status}><StatusBadge status={job.status} /></span>
         {active && (
           <button

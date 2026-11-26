@@ -7,6 +7,8 @@ import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+const JOB_TYPE_LABEL: Record<string, string> = { baseline: "Baseline", compare: "Comparison", capture: "Capture", recompare: "Re-comparison" };
+
 export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
   const job = await getRepo().getJob(Number((await params).id));
   if (!job) notFound();
@@ -14,8 +16,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`Job #${job.id} · ${job.type}`}
-        subtitle={<>Created {fmtDate(job.createdAt)} {website && <>· <Link className="hover:underline" href={`/websites/${website.id}`}>{website.name}</Link></>}</>}
+        title={`${JOB_TYPE_LABEL[job.type] ?? job.type} – ${website?.name ?? "deleted website"} – ${fmtDate(job.createdAt)}`}
+        subtitle={website ? <Link className="hover:underline" href={`/websites/${website.id}`}>Open {website.name}</Link> : undefined}
       />
       <div className="card p-5">
         <JobProgress jobId={job.id} showLogs refreshOnDone={false} />

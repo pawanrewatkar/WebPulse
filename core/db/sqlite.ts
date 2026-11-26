@@ -361,6 +361,27 @@ export class SqliteRepository implements Repository {
     this.db.prepare("UPDATE websites SET active_baseline_id = ?, updated_at = ? WHERE id = ?").run(runId, now(), websiteId);
   }
 
+  async deleteWebsite(id: number) {
+    return this.db.transaction(() => {
+      const ids = (sql: string) => (this.db.prepare(sql).all(id) as Row[]).map((r) => r.id as number);
+      const runIds = ids("SELECT id FROM crawl_runs WHERE website_id = ?");
+      const comparisonIds = ids("SELECT id FROM comparisons WHERE website_id = ?");
+      const pageIds = ids("SELECT p.id FROM pages p JOIN crawl_runs r ON r.id = p.run_id WHERE r.website_id = ?");
+      // Children first (foreign keys are enforced).
+      this.db.prepare("DELETE FROM changes WHERE comparison_id IN (SELECT id FROM comparisons WHERE website_id = ?)").run(id);
+      this.db.prepare("DELETE FROM comparisons WHERE website_id = ?").run(id);
+      this.db.prepare("DELETE FROM link_checks WHERE run_id IN (SELECT id FROM crawl_runs WHERE website_id = ?)").run(id);
+      this.db.prepare("DELETE FROM pages WHERE run_id IN (SELECT id FROM crawl_runs WHERE website_id = ?)").run(id);
+      this.db.prepare("UPDATE websites SET active_baseline_id = NULL WHERE id = ?").run(id);
+      this.db.prepare("DELETE FROM crawl_runs WHERE website_id = ?").run(id);
+      this.db.prepare("DELETE FROM ignore_rules WHERE website_id = ?").run(id);
+      this.db.prepare("DELETE FROM job_logs WHERE job_id IN (SELECT id FROM jobs WHERE website_id = ?)").run(id);
+      this.db.prepare("DELETE FROM jobs WHERE website_id = ?").run(id);
+      this.db.prepare("DELETE FROM websites WHERE id = ?").run(id);
+      return { runIds, comparisonIds, pageIds };
+    })();
+  }
+
   // ---------------- Runs ----------------
   async createRun(input: { websiteId: number; kind: CrawlRun["kind"]; label?: string | null; devices: string[]; jobId?: number | null; settingsSnapshot: any }) {
     const id = this.db.transaction(() => {

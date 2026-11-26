@@ -33,6 +33,12 @@ export const websiteSettingsSchema = z.object({
   ignoreTextPatterns: z.array(z.string()).default([]),
   /** Apply built-in noise filters (dates/times, common ad & cookie widgets). */
   builtInNoiseFilters: z.boolean().default(true),
+  /** Hide "related products / related posts" blocks that show random items on every visit. */
+  ignoreRelatedContent: z.boolean().default(true),
+  /** Hide image sliders & carousels entirely (they are frozen on their first slide either way). */
+  ignoreSliders: z.boolean().default(false),
+  /** Skip extra listing pages (page 2, 3 … of blogs, categories and shops). */
+  skipPaginatedListings: z.boolean().default(true),
   /** pixelmatch per-pixel colour threshold (0..1). */
   visualThreshold: z.number().min(0).max(1).default(0.1),
   /** Minimum % of differing pixels before a visual change is reported. */
@@ -64,6 +70,36 @@ export const BUILTIN_IGNORE_SELECTORS = [
   "[class*='intercom-launcher']",
   "#hubspot-messages-iframe-container",
   "[data-wcm-ignore]",
+];
+
+/** Recommendation widgets that show random items on every page load (WooCommerce, Elementor, Jetpack, YARPP). */
+export const RELATED_CONTENT_SELECTORS = [
+  ".related.products",
+  ".upsells.products",
+  ".cross-sells",
+  "[class*='related-products']",
+  "[class*='related-posts']",
+  ".jp-relatedposts",
+  ".yarpp-related",
+];
+
+/** Popular slider / carousel plugins (Smart Slider 3, Slider Revolution, Elementor, Swiper, Slick, Owl, MetaSlider, Splide, Flickity, Bootstrap). */
+export const SLIDER_SELECTORS = [
+  ".n2-section-smartslider",
+  ".rev_slider_wrapper",
+  "rs-module-wrap",
+  ".elementor-slides-wrapper",
+  ".elementor-image-carousel-wrapper",
+  ".elementor-widget-image-carousel",
+  ".swiper",
+  ".swiper-container",
+  ".slick-slider",
+  ".owl-carousel",
+  ".metaslider",
+  ".flexslider",
+  ".splide",
+  ".flickity-enabled",
+  ".carousel.slide",
 ];
 
 /** Built-in text noise: timestamps, dates and relative times. */

@@ -117,6 +117,19 @@ describe("detectors", () => {
     expect(find("structure", "modified")).toBeUndefined(); // outline unchanged
   });
 
+  it("does not report links that were already broken in the baseline", () => {
+    const broken = { runId: 1, url: "https://x.com/about", status: 404, ok: false, error: "HTTP 404" };
+    const c = detectChanges(page(), page(), ctx({ linkChecksBefore: new Map([[broken.url, broken]]), linkChecksAfter: new Map([[broken.url, { ...broken, runId: 2 }]]) }));
+    expect(c).toEqual([]);
+  });
+
+  it("ignores tiny DOM fluctuations but reports real structural edits", () => {
+    const big = Array.from({ length: 400 }, (_, i) => `div.item-${i}`);
+    expect(detectChanges(page({ outline: big }), page({ outline: [...big.slice(0, 399), "div.other"] }), ctx())).toEqual([]);
+    const c = detectChanges(page(), page({ outline: ["header", "section#promo", "  h2", "  p", "section#hero", "  h1", "footer"] }), ctx());
+    expect(c.find((x) => x.category === "structure")).toBeTruthy();
+  });
+
   it("ignores cache-busting query strings on images and reports removed CTAs", () => {
     const b = page();
     const a = page({ images: [{ ...b.images[0], src: "https://x.com/a.png?v=2" }], buttons: [] });

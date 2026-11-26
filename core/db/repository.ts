@@ -39,6 +39,11 @@ export interface Repository {
   /** Decrypted credentials. Internal use by the crawler only, never sent to the client. */
   getWebsiteCredentials(id: number): Promise<Credentials | null>;
   setActiveBaseline(websiteId: number, runId: number | null): Promise<void>;
+  /**
+   * Permanently deletes a website and everything recorded for it (runs, pages, link checks,
+   * comparisons, changes, ignore rules, jobs, job logs). Returns ids needed to clean up stored files.
+   */
+  deleteWebsite(id: number): Promise<{ runIds: number[]; comparisonIds: number[]; pageIds: number[] }>;
 
   // Crawl runs (baselines, comparison crawls, ad-hoc captures)
   createRun(input: { websiteId: number; kind: RunKind; label?: string | null; devices: Device[]; jobId?: number | null; settingsSnapshot: WebsiteSettings }): Promise<CrawlRun>;

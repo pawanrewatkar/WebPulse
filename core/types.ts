@@ -71,6 +71,7 @@ export interface RunStats {
   captured?: number;
   failed?: number;
   httpErrors?: number;
+  duplicatesSkipped?: number;
   linksChecked?: number;
   brokenLinks?: number;
   durationMs?: number;
@@ -148,6 +149,8 @@ export interface ComparisonSummary {
   pagesRemoved: number;
   pagesFailed: number;
   pagesNotChecked: number;
+  /** Broken links that were already broken in the baseline (not counted as changes). */
+  existingBrokenLinks?: Array<{ url: string; status: number | null; error: string | null }>;
 }
 
 export interface ChangeEvidence {
@@ -157,6 +160,9 @@ export interface ChangeEvidence {
   baselineCrop?: string | null;
   currentCrop?: string | null;
   regions?: Array<{ x: number; y: number; width: number; height: number }>;
+  /** Position of the changed element on the baseline / current screenshot (page pixels), used for highlighting. */
+  beforeBox?: Box | null;
+  afterBox?: Box | null;
   diffPercent?: number;
   baselinePageId?: number | null;
   currentPageId?: number | null;

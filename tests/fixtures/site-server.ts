@@ -41,7 +41,9 @@ function layout(v: Version, title: string, body: string, opts: { description?: s
 </header>
 ${body}
 <footer><p>© Acme Widgets. Last updated: ${new Date().toISOString().slice(0, 10)} ${new Date().toTimeString().slice(0, 8)}</p>
-<p><a href="https://example.org/partner">Partner site</a> · <a href="/privacy">Privacy</a></p></footer>
+<p><a href="https://example.org/partner">Partner site</a> · <a href="/privacy">Privacy</a></p>
+<p class="dup-links"><a href="/index.html">Start</a> · <a href="/home">Back home</a> · <a href="/products/?utm_source=footer">Shop</a> · <a href="/products#top">Shop again</a></p>
+<p class="more-links"><a href="/gallery">Gallery</a> · <a href="/blog/page/2/">Older posts</a> · <a href="/elementor-hf/header">Header template</a></p></footer>
 </body></html>`;
 }
 
@@ -130,7 +132,7 @@ export function startFixtureServer(port = 4400, initial: Version = 1): Promise<F
     if (p === "/sitemap.xml")
       return send(
         200,
-        `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${["/", "/about", "/products", "/contact", "/blog/first-post", "/slow", "/terms"]
+        `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${["/", "/about", "/products", "/contact", "/blog/first-post", "/slow", "/terms", "/gallery"]
           .map((x) => `<url><loc>http://localhost:${port}${x}</loc></url>`)
           .join("")}</urlset>`,
         "application/xml",
@@ -182,6 +184,30 @@ export function startFixtureServer(port = 4400, initial: Version = 1): Promise<F
         );
       if (p === "/account/orders") return send(200, layout(version, "Orders – Acme", `<main><h1>Your orders</h1><ul><li>Order #1001</li><li>Order #1002</li></ul></main>`, { loggedIn }));
     }
+    // Page-builder template (must never be crawled) and an extra listing page (skipped by default).
+    if (p === "/elementor-hf/header") return send(200, home(version));
+    if (p === "/blog/page/2") return send(200, layout(version, "Blog – page 2 – Acme", `<main><h1>Older posts</h1><p>Post ${Math.floor(Math.random() * 1000)}</p></main>`));
+    // Auto-rotating slider that starts on a random slide; exposes a Swiper-like API so it can be frozen.
+    if (p === "/gallery")
+      return send(
+        200,
+        layout(
+          version,
+          "Gallery – Acme",
+          `<main><h1>Gallery</h1><div class="swiper" id="g" style="height:160px">
+<div class="slide" style="background:#2563eb;color:#fff;height:160px">Slide A</div><div class="slide" style="background:#059669;color:#fff;height:160px">Slide B</div><div class="slide" style="background:#d97706;color:#fff;height:160px">Slide C</div></div>
+<script>(function(){var el=document.getElementById("g"),sl=[].slice.call(el.children),cur=Math.floor(Math.random()*3);
+function show(i){cur=i;sl.forEach(function(s,j){s.style.display=j===i?"block":"none";});}show(cur);
+var t=setInterval(function(){show((cur+1)%3);},400);
+el.swiper={params:{loop:false},autoplay:{stop:function(){clearInterval(t);}},slideTo:function(i){show(i);}};})();</script></main>`,
+        ),
+      );
+    // Carousel with random content and no API (cannot be frozen; only "Ignore image sliders" hides it).
+    if (p === "/promo")
+      return send(200, layout(version, "Promo – Acme", `<main><h1>Promo</h1><div class="slick-slider"><p>Deal of the moment #${Math.floor(Math.random() * 100000)}</p></div><p>Static promo text.</p></main>`));
+    // Duplicate URLs for the same pages (crawler must save each page only once).
+    if (p === "/home") return send(301, "", "text/html", { Location: "/" });
+    if (p === "/index.html") return send(200, home(version));
     const render = pages[p];
     const html = render?.(version);
     if (html) return send(200, html);

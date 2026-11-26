@@ -43,6 +43,59 @@ export function normalizeUrl(input: string, base?: string): string {
   return u.toString();
 }
 
+const INDEX_FILE = /\/(index|default)\.(html?|php|aspx?|jsp)$/i;
+
+/**
+ * Canonical key for a page of the crawled site, used to avoid saving the same page twice:
+ * on top of normalizeUrl, URLs on the site's own host are folded to the base URL's protocol/host
+ * (http↔https, www↔non-www) and directory index files are removed (/index.html → /).
+ */
+export function canonicalPageKey(input: string, baseUrl: string): string {
+  const u = new URL(normalizeUrl(input, baseUrl));
+  const base = new URL(baseUrl);
+  if (siteHost(u) === siteHost(base) && (u.protocol === "http:" || u.protocol === "https:")) {
+    u.protocol = base.protocol;
+    u.hostname = base.hostname;
+    u.port = base.port;
+  }
+  if (INDEX_FILE.test(u.pathname)) u.pathname = u.pathname.replace(INDEX_FILE, "/");
+  return normalizeUrl(u.toString());
+}
+
+/**
+ * Internal page-builder template URLs (Elementor, Divi, Beaver Builder…). They are publicly reachable
+ * but are never pages real visitors see, so they are never crawled.
+ */
+const BUILDER_TEMPLATE_PATH = /\/(elementor-hf|elementor_library|et_pb_layout|fl-builder-template|ct_template|wp-block)(\/|$)/i;
+const BUILDER_TEMPLATE_QUERY = ["elementor_library", "elementor-preview", "et_pb_layout", "fl_builder", "ct_builder"];
+
+export function isBuilderTemplateUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return BUILDER_TEMPLATE_PATH.test(u.pathname) || BUILDER_TEMPLATE_QUERY.some((q) => u.searchParams.has(q));
+  } catch {
+    return false;
+  }
+}
+
+const PAGINATION_PATH = /\/page\/(\d+)(\/|$)/i;
+const PAGINATION_PARAMS = ["paged", "page", "pg", "product-page", "pagenum"];
+
+/** Page 2, 3 … of a listing: /blog/page/2/, ?paged=2, ?page=3, ?product-page=2 (page 1 is not a "extra" page). */
+export function isPaginatedListingUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const m = u.pathname.match(PAGINATION_PATH);
+    if (m && Number(m[1]) >= 2) return true;
+    return PAGINATION_PARAMS.some((p) => {
+      const v = u.searchParams.get(p);
+      return v !== null && /^\d+$/.test(v) && Number(v) >= 2;
+    });
+  } catch {
+    return false;
+  }
+}
+
 /** Host without leading www., used to decide whether a URL belongs to the configured site. */
 export function siteHost(u: string | URL): string {
   const h = (typeof u === "string" ? new URL(u) : u).hostname.toLowerCase();

@@ -20,11 +20,11 @@ export const GET = handler(async (req: Request, ctx: Ctx<{ id: string }>) => {
   const buf = format === "pdf" ? await buildPdfReport(id) : await buildExcelReport(id, origin);
   await getStorage().write(storageKeys.report(id, format), buf);
   const safeName = (website?.name ?? "website").replace(/[^a-zA-Z0-9-_]+/g, "-").slice(0, 40);
-  const date = new Date(cmp.createdAt).toISOString().slice(0, 10);
+  const date = new Date(cmp.createdAt).toISOString().slice(0, 16).replace("T", "_").replace(":", "-");
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${safeName}-comparison-${id}-${date}.${format}"`,
+      "Content-Disposition": `attachment; filename="${safeName}-comparison-${date}.${format}"`,
       "Cache-Control": "no-store",
     },
   });

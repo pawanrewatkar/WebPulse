@@ -20,6 +20,16 @@ export async function buildExcelReport(comparisonId: number, appOrigin?: string)
   pagesSheet(wb, m);
   await changesSheet(wb, "Changes", m.changes, m, appOrigin, true);
   if (m.ignored.length) await changesSheet(wb, "Ignored changes", m.ignored, m, appOrigin, false);
+  const existing = m.comparison.summary?.existingBrokenLinks ?? [];
+  if (existing.length) {
+    const ws = wb.addWorksheet("Existing issues");
+    ws.columns = [
+      { header: "Broken link (already broken in baseline)", key: "url", width: 80 },
+      { header: "Result", key: "status", width: 20 },
+    ];
+    for (const l of existing) ws.addRow({ url: l.url, status: l.status ? `HTTP ${l.status}` : l.error ?? "request failed" });
+    header(ws);
+  }
 
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
@@ -45,7 +55,6 @@ function summarySheet(wb: ExcelJS.Workbook, m: ReportModel) {
     ["Comparison date (current crawl)", m.current.finishedAt ?? m.current.createdAt],
     ["Current crawl status", `${m.current.status}${m.current.error ? ` – ${m.current.error}` : ""}`],
     ["Devices", m.current.devices.join(", ")],
-    ["Comparison ID", m.comparison.id],
     ["Report generated", m.generatedAt],
     ["", ""],
     ["Total changes (not ignored)", s.totalChanges],

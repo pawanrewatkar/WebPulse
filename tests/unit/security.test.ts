@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { useTempDataDir } from "../helpers";
-import { assertSafeUrl, isInternalUrl, isPrivateAddress, matchesAnyPattern, normalizeUrl, parseHttpUrl } from "../../core/security/url";
+import { assertSafeUrl, canonicalPageKey, isBuilderTemplateUrl, isInternalUrl, isPaginatedListingUrl, isPrivateAddress, matchesAnyPattern, normalizeUrl, parseHttpUrl } from "../../core/security/url";
 import { decryptString, encryptString } from "../../core/security/crypto";
 import { redact } from "../../core/logger";
 
@@ -15,6 +15,42 @@ describe("normalizeUrl", () => {
     expect(normalizeUrl("HTTPS://Example.COM:443/About/?b=2&utm_source=x&a=1#top")).toBe("https://example.com/About?a=1&b=2");
     expect(normalizeUrl("https://example.com")).toBe("https://example.com/");
     expect(normalizeUrl("/x//y/", "https://example.com/a/")).toBe("https://example.com/x/y");
+  });
+});
+
+describe("canonicalPageKey (duplicate page detection)", () => {
+  const base = "https://example.com/";
+  it("folds protocol, www, index files, tracking params, fragments and trailing slashes into one key", () => {
+    const variants = [
+      "https://example.com/products",
+      "http://example.com/products",
+      "https://www.example.com/products/",
+      "/products?utm_source=newsletter#top",
+      "https://EXAMPLE.com/products/index.html",
+    ];
+    expect(new Set(variants.map((v) => canonicalPageKey(v, base)))).toEqual(new Set(["https://example.com/products"]));
+    expect(canonicalPageKey("/index.php", base)).toBe("https://example.com/");
+  });
+  it("keeps genuinely different pages and other domains apart", () => {
+    expect(canonicalPageKey("/products?page=2", base)).not.toBe(canonicalPageKey("/products", base));
+    expect(canonicalPageKey("https://shop.example.com/a", base)).toBe("https://shop.example.com/a");
+  });
+});
+
+describe("page skipping rules", () => {
+  it("recognises page-builder template URLs", () => {
+    for (const u of ["https://x.com/elementor-hf/header/", "https://x.com/elementor_library/footer", "https://x.com/?elementor_library=hero", "https://x.com/et_pb_layout/test", "https://x.com/fl-builder-template/a"]) {
+      expect(isBuilderTemplateUrl(u), u).toBe(true);
+    }
+    for (const u of ["https://x.com/", "https://x.com/about", "https://x.com/elementor-tips"]) expect(isBuilderTemplateUrl(u), u).toBe(false);
+  });
+  it("recognises extra listing pages (page 2+) but not page 1 or normal pages", () => {
+    for (const u of ["https://x.com/blog/page/2/", "https://x.com/category/news/page/3", "https://x.com/shop/?paged=2", "https://x.com/list?page=4", "https://x.com/shop?product-page=2"]) {
+      expect(isPaginatedListingUrl(u), u).toBe(true);
+    }
+    for (const u of ["https://x.com/blog/page/1/", "https://x.com/blog/", "https://x.com/landing-page/", "https://x.com/page/about", "https://x.com/list?page=abc"]) {
+      expect(isPaginatedListingUrl(u), u).toBe(false);
+    }
   });
 });
 

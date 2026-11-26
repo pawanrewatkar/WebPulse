@@ -113,6 +113,8 @@ export async function comparePagePair(
       baselinePageId: before.id,
       currentPageId: after.id,
       details: d.details,
+      beforeBox: d.beforeBox ?? null,
+      afterBox: d.afterBox ?? null,
     };
     if (d.category === "visual" && visual) {
       ev.diffImage = visual.diffKey;
@@ -157,6 +159,15 @@ export async function compareRuns(params: { websiteId: number; baseline: CrawlRu
       repo.listIgnoreRules(websiteId),
     ]);
     const ignored = new Set(rules.map((r) => r.fingerprint));
+    // URLs the baseline crawl discovered (captured or not), to avoid calling pages "new" that were only beyond the page limit.
+    let baselineDiscovered: Set<string> | null = null;
+    try {
+      baselineDiscovered = new Set(JSON.parse(await getStorage().readText(`runs/${baseline.id}/discovered.json`)) as string[]);
+    } catch {
+      baselineDiscovered = null; // older baselines did not record this
+    }
+    // A newly broken link that appears on many pages (e.g. in the menu) is reported once, listing the other locations.
+    const brokenLinkFirst = new Map<string, { evidence: ChangeEvidence; others: string[] }>();
     const k = (p: PageCapture) => `${p.urlKey}|${p.device}`;
     const bMap = new Map(bPages.map((p) => [k(p), p]));
     const cMap = new Map(cPages.map((p) => [k(p), p]));
@@ -200,7 +211,10 @@ export async function compareRuns(params: { websiteId: number; baseline: CrawlRu
           ? "Not captured in the current crawl (URL excluded, page limit reached, or crawl stopped). Not verified – not reported as removed."
           : `Device "${b.device}" was not part of the current crawl.`;
       } else if (!b && c) {
-        if (c.status === "captured") {
+        if (c.status === "captured" && baselineDiscovered?.has(c.urlKey)) {
+          summary.status = "not_checked";
+          summary.note = "This page already existed when the baseline was saved but was not captured (page limit). Increase the page limit or save a new baseline to compare it.";
+        } else if (c.status === "captured") {
           summary.status = "new_page";
           pageLevel({ changeType: "added", severity: "medium", description: "New page found that is not in the baseline", expected: null, actual: `${c.url} – "${c.title ?? ""}"` });
         } else if (c.status === "http_error") {
@@ -256,6 +270,15 @@ export async function compareRuns(params: { websiteId: number; baseline: CrawlRu
       }
 
       for (const d of pageChanges) {
+        if (d.category === "link" && d.changeType === "potentially_broken" && d.actual) {
+          const target = d.actual.split(" → ")[0];
+          const first = brokenLinkFirst.get(target);
+          if (first) {
+            first.others.push(`${ref.url} (${ref.device})`);
+            continue;
+          }
+          brokenLinkFirst.set(target, { evidence: d.evidence, others: [] });
+        }
         const change = {
           url: ref.url,
           urlKey: ref.urlKey,
@@ -284,6 +307,13 @@ export async function compareRuns(params: { websiteId: number; baseline: CrawlRu
       summaries.push(summary);
     }
 
+    for (const { evidence, others } of brokenLinkFirst.values()) {
+      if (others.length) evidence.details = [`The same broken link also appears on ${others.length} other page view(s):`, ...others.slice(0, 50)];
+    }
+    // Problems that already existed in the baseline are not changes; they are listed once for information.
+    const brokenBefore = new Map(bChecks.filter((c) => !c.ok).map((c) => [c.url, c]));
+    const existingBrokenLinks = cChecks.filter((c) => !c.ok && brokenBefore.has(c.url)).map((c) => ({ url: c.url, status: c.status, error: c.error }));
+
     await repo.insertChanges(comparison.id, allChanges);
     const counted = allChanges.filter((c) => !c.autoIgnored);
     const tally = <K extends string>(f: (c: (typeof counted)[number]) => K) =>
@@ -302,10 +332,11 @@ export async function compareRuns(params: { websiteId: number; baseline: CrawlRu
       pagesRemoved: summaries.filter((s) => s.status === "removed").length,
       pagesFailed: summaries.filter((s) => s.status === "crawl_failed").length,
       pagesNotChecked: summaries.filter((s) => s.status === "not_checked").length,
+      existingBrokenLinks,
     };
     await repo.updateComparison(comparison.id, { status: "completed", summary, finishedAt: new Date().toISOString() });
     ctx.log.info(
-      `Comparison #${comparison.id}: ${summary.totalChanges} change(s) on ${summary.pagesChanged} page view(s); ${summary.pagesFailed} crawl failure(s); ${autoIgnored} auto-ignored`,
+      `Comparison finished: ${summary.totalChanges} change(s) on ${summary.pagesChanged} page view(s); ${summary.pagesFailed} crawl failure(s); ${autoIgnored} auto-ignored`,
     );
     return comparison.id;
   } catch (e) {

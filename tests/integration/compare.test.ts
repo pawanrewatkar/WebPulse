@@ -3,8 +3,7 @@ import { useTempDataDir } from "../helpers";
 import { startFixtureServer, type FixtureServer } from "../fixtures/site-server";
 import { getRepo } from "../../core/db";
 import { createWebsite } from "../../core/services";
-import { runJob } from "../../core/jobs/handlers";
-import { createCliContext } from "../../core/jobs/context";
+import { executeJob } from "../../core/jobs/runner";
 import { getStorage } from "../../core/storage";
 import type { Change, Job } from "../../core/types";
 
@@ -17,7 +16,10 @@ let changes: Change[];
 async function run(job: Job) {
   const claimed = await getRepo().claimNextJob();
   expect(claimed?.id).toBe(job.id);
-  return runJob(createCliContext(claimed!));
+  // Same path as the real worker: the job is marked completed/failed afterwards.
+  const res = await executeJob(claimed!);
+  if (!res.ok) throw new Error(res.error);
+  return res.result!;
 }
 
 beforeAll(async () => {
@@ -60,6 +62,9 @@ describe("automatic comparison v1 → v2", () => {
     expect(status("/slow")).toBe("crawl_failed"); // timeout: NOT reported as removed
     expect(status("/pricing")).toBe("new_page");
     expect(status("/terms")).toBe("unchanged"); // only a timestamp differs (noise-filtered)
+    // /gallery changes in v2 only through the shared header/menu; its random auto-rotating slider is frozen on slide 1.
+    const gallery = changes.filter((c) => new URL(c.url).pathname === "/gallery");
+    expect(gallery.some((c) => /Slide [ABC]/.test(`${c.expected} ${c.actual} ${c.description}`))).toBe(false);
     expect(status("/terms", "mobile")).toBe("unchanged");
     expect(status("/blog/first-post")).toBe("changed"); // global nav gained a link in v2
     expect(status("/", "mobile")).toBe("changed");
@@ -160,5 +165,39 @@ describe("automatic comparison v1 → v2", () => {
     expect(same.autoIgnored).toBe(true);
     const visible = await repo.listChanges(res.comparisonId as number);
     expect(visible.some((c) => c.fingerprint === target.fingerprint)).toBe(false);
+  }, 120_000);
+
+  it("deletes a website with all its data and files, leaving other websites untouched", async () => {
+    const repo = getRepo();
+    const storage = getStorage();
+    const cmp = (await repo.getComparison(comparisonId))!;
+    const websiteId = cmp.websiteId;
+    const other = await createWebsite({ name: "Other site", baseUrl: site.url });
+    const runs = await repo.listRuns(websiteId);
+    const pages = await repo.listPages(runs[0].id);
+    // Simulate leftovers from a report download and a manual explorer comparison.
+    const { buildPdfReport } = await import("../../core/reports/pdf");
+    await storage.write(`reports/comparison-${comparisonId}.pdf`, await buildPdfReport(comparisonId));
+    await storage.write(`manual/${pages[0].id}-${pages[1].id}/diff.png`, Buffer.from("x"));
+
+    const { deleteWebsite } = await import("../../core/services");
+    await expect(deleteWebsite(websiteId, "wrong name")).rejects.toThrow(/does not match/);
+    expect(await repo.getWebsite(websiteId)).not.toBeNull(); // nothing deleted on a wrong confirmation
+
+    const res = await deleteWebsite(websiteId, "Fixture");
+    expect(res.deletedRuns).toBe(runs.length);
+    expect(await repo.getWebsite(websiteId)).toBeNull();
+    expect(await repo.listRuns(websiteId)).toEqual([]);
+    expect(await repo.listComparisons(websiteId)).toEqual([]);
+    expect(await repo.getComparison(comparisonId)).toBeNull();
+    expect(await repo.listChanges(comparisonId, { includeIgnored: true })).toEqual([]);
+    expect(await repo.listIgnoreRules(websiteId)).toEqual([]);
+    expect(await repo.listJobs({ websiteId })).toEqual([]);
+    expect(await repo.getPage(pages[0].id)).toBeNull();
+    for (const r of runs) expect(await storage.exists(`runs/${r.id}`)).toBe(false);
+    expect(await storage.exists(`comparisons/${comparisonId}`)).toBe(false);
+    expect(await storage.exists(`reports/comparison-${comparisonId}.pdf`)).toBe(false);
+    expect(await storage.exists(`manual/${pages[0].id}-${pages[1].id}`)).toBe(false);
+    expect(await repo.getWebsite(other.id)).not.toBeNull();
   }, 120_000);
 });

@@ -78,7 +78,7 @@ async function compareJob(ctx: JobContext) {
     comparisonId,
     runId: current.id,
     ...stats,
-    message: `Comparison #${comparisonId}: ${cmp?.summary?.totalChanges ?? 0} change(s) on ${cmp?.summary?.pagesChanged ?? 0} page view(s)${cmp?.summary?.pagesFailed ? `, ${cmp.summary.pagesFailed} crawl failure(s)` : ""}`,
+    message: `Comparison finished: ${cmp?.summary?.totalChanges ?? 0} change(s) on ${cmp?.summary?.pagesChanged ?? 0} page view(s)${cmp?.summary?.pagesFailed ? `, ${cmp.summary.pagesFailed} crawl failure(s)` : ""}`,
   };
 }
 
@@ -90,7 +90,7 @@ async function recompareJob(ctx: JobContext) {
   if (!baseline || !current) throw new Error("Run not found");
   const comparisonId = await compareRuns({ websiteId: website.id, baseline, current, ctx });
   const cmp = await repo.getComparison(comparisonId);
-  return { comparisonId, message: `Comparison #${comparisonId}: ${cmp?.summary?.totalChanges ?? 0} change(s)` };
+  return { comparisonId, message: `Comparison finished: ${cmp?.summary?.totalChanges ?? 0} change(s)` };
 }
 
 export async function runJob(ctx: JobContext): Promise<Record<string, unknown>> {

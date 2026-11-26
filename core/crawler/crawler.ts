@@ -1,8 +1,8 @@
 import type { Browser, BrowserContext } from "playwright";
 import { getRepo } from "../db";
 import { getStorage, storageKeys } from "../storage";
-import { BUILTIN_IGNORE_SELECTORS, type WebsiteSettings } from "../settings";
-import { isCrawlableUrl, isInternalUrl, matchesAnyPattern, normalizeUrl } from "../security/url";
+import { BUILTIN_IGNORE_SELECTORS, RELATED_CONTENT_SELECTORS, SLIDER_SELECTORS, type WebsiteSettings } from "../settings";
+import { canonicalPageKey, isBuilderTemplateUrl, isCrawlableUrl, isInternalUrl, isPaginatedListingUrl, matchesAnyPattern, normalizeUrl } from "../security/url";
 import { errorMessage } from "../logger";
 import { createDeviceContext, launchBrowser } from "./browser";
 import { performLogin, LoginError } from "./auth";
@@ -38,12 +38,21 @@ export async function crawlIntoRun(website: Website, run: CrawlRun, ctx: JobCont
   const s: WebsiteSettings = website.settings;
   const devices = opts.devices ?? run.devices;
   const started = Date.now();
-  const stats: RunStats = { discovered: 0, pagesPlanned: 0, captured: 0, failed: 0, httpErrors: 0, linksChecked: 0, brokenLinks: 0 };
-  const ignoreSelectors = [...(s.builtInNoiseFilters ? BUILTIN_IGNORE_SELECTORS : []), ...s.ignoreSelectors];
+  const stats: RunStats = { discovered: 0, pagesPlanned: 0, captured: 0, failed: 0, httpErrors: 0, duplicatesSkipped: 0, linksChecked: 0, brokenLinks: 0 };
+  const ignoreSelectors = [
+    ...(s.builtInNoiseFilters ? BUILTIN_IGNORE_SELECTORS : []),
+    ...(s.ignoreRelatedContent ? RELATED_CONTENT_SELECTORS : []),
+    ...(s.ignoreSliders ? SLIDER_SELECTORS : []),
+    ...s.ignoreSelectors,
+  ];
+  /** Pages never captured: builder templates always; extra listing pages when the option is on. */
+  const skipped = (url: string) => isBuilderTemplateUrl(url) || (s.skipPaginatedListings && isPaginatedListingUrl(url));
   const baseKey = normalizeUrl(website.baseUrl);
+  /** One key per real page: folds http/https, www, index files, tracking params, trailing slashes. */
+  const pageKey = (u: string) => canonicalPageKey(u, website.baseUrl);
 
   const accept = (url: string) =>
-    isCrawlableUrl(url) && isInternalUrl(url, website.baseUrl, s.allowedDomains) && !matchesAnyPattern(url, s.excludePatterns) &&
+    isCrawlableUrl(url) && isInternalUrl(url, website.baseUrl, s.allowedDomains) && !matchesAnyPattern(url, s.excludePatterns) && !skipped(url) &&
     !(s.auth && normalizeUrl(url) === normalizeUrl(s.auth.loginUrl));
 
   await repo.updateRun(run.id, { status: "running", startedAt: new Date().toISOString() });
@@ -70,13 +79,13 @@ export async function crawlIntoRun(website: Website, run: CrawlRun, ctx: JobCont
     const enqueue = (url: string, depth: number, required = false) => {
       let key: string;
       try {
-        key = normalizeUrl(url, website.baseUrl);
+        key = pageKey(url);
       } catch {
         return;
       }
-      if (queued.has(key)) return;
+      if (queued.has(key)) return; // same page linked again (e.g. two CTAs with the same URL)
       if (!required && !accept(key)) return;
-      if (required && (!/^https?:/.test(key) || (key !== baseKey && matchesAnyPattern(key, s.excludePatterns)))) return;
+      if (required && (!/^https?:/.test(key) || (key !== baseKey && (matchesAnyPattern(key, s.excludePatterns) || skipped(key))))) return;
       queued.add(key);
       queue.push({ url: key, key, depth, required });
     };
@@ -129,6 +138,21 @@ export async function crawlIntoRun(website: Website, run: CrawlRun, ctx: JobCont
           retries: s.retries,
           loginUrl: s.auth?.loginUrl ?? null,
         });
+        // A discovered URL that redirects to a page that is already saved is the same page: do not store it twice.
+        if (device === devices[0] && !item.required && res.status === "captured" && res.finalUrl) {
+          let finalKey: string | null = null;
+          try {
+            finalKey = pageKey(res.finalUrl);
+          } catch {
+            /* ignore */
+          }
+          if (finalKey && finalKey !== item.key && captured.has(finalKey)) {
+            stats.duplicatesSkipped!++;
+            processed--;
+            ctx.log.info(`Skipped duplicate: ${item.url} redirects to ${finalKey}, which is already saved`);
+            break;
+          }
+        }
         const prefix = storageKeys.page(run.id, item.key, device);
         let screenshotPath = null,
           thumbPath = null,
@@ -170,7 +194,7 @@ export async function crawlIntoRun(website: Website, run: CrawlRun, ctx: JobCont
           pageDataForLinks.push(res.data);
           if (res.finalUrl) {
             try {
-              captured.add(normalizeUrl(res.finalUrl));
+              captured.add(pageKey(res.finalUrl));
             } catch {
               /* ignore */
             }
@@ -194,6 +218,9 @@ export async function crawlIntoRun(website: Website, run: CrawlRun, ctx: JobCont
       stats.linksChecked = checks.length;
       stats.brokenLinks = checks.filter((c) => !c.ok).length;
     }
+
+    // Every URL discovered (captured or not) – lets comparisons tell "new page" from "beyond the page limit".
+    await storage.write(`runs/${run.id}/discovered.json`, JSON.stringify([...queued]));
 
     stats.durationMs = Date.now() - started;
     const total = stats.captured! + stats.httpErrors! + stats.failed!;

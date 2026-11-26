@@ -49,6 +49,20 @@ describe("crawler: public website baseline", () => {
     expect(paths).toEqual(expect.arrayContaining(["/", "/about", "/products", "/contact", "/blog/first-post", "/slow", "/privacy"]));
     expect(pages.some((p) => p.url.includes("example.org"))).toBe(false); // external domain never crawled
 
+    // Duplicates: every page is linked several times (CTA + nav + footer, /index.html, /home → /,
+    // tracking params, fragments). Each page must be saved exactly once per device.
+    const keys = pages.map((p) => `${p.urlKey}|${p.device}`);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(paths).not.toContain("/home");
+    expect(paths).not.toContain("/index.html");
+    expect(pages.filter((p) => new URL(p.url).pathname === "/products")).toHaveLength(2); // desktop + mobile
+    expect(run.stats.duplicatesSkipped).toBe(1); // /home redirected to the already-saved home page
+
+    // Builder templates are never crawled; extra listing pages are skipped by default.
+    expect(paths).not.toContain("/elementor-hf/header");
+    expect(paths).not.toContain("/blog/page/2");
+    expect(paths).toContain("/gallery");
+
     for (const device of ["desktop", "mobile"] as const) {
       const home = pages.find((p) => p.device === device && new URL(p.url).pathname === "/")!;
       expect(home.status).toBe("captured");
@@ -85,6 +99,38 @@ describe("crawler: public website baseline", () => {
     expect(result.version).toBe(2);
     expect((await repo.getWebsite(w.id))!.activeBaselineId).toBe(v1.id); // setActive false keeps v1 active
     expect(await repo.listPages(v1.id)).toEqual(v1Pages); // v1 untouched
+  }, 120_000);
+});
+
+describe("crawler: sliders", () => {
+  async function captureOnce(websiteId: number, url: string) {
+    const repo = getRepo();
+    const job = await repo.enqueueJob("capture", websiteId, { urls: [url], devices: ["desktop"] });
+    const res = await runQueuedJob(job);
+    await repo.updateJob(job.id, { status: "completed" });
+    const page = (await repo.listPages(res.runId as number))[0];
+    return { page, data: JSON.parse(await getStorage().readText(page.dataPath!)) as PageData };
+  }
+
+  it("freezes auto-rotating sliders on their first slide, so repeated visits look identical", async () => {
+    const { comparePagePair } = await import("../../core/compare/engine");
+    const w = await createWebsite({ name: "Slider test", baseUrl: site.url, settings: { ...fastSettings, devices: ["desktop"], checkLinks: false } });
+    const a = await captureOnce(w.id, `${site.url}/gallery`);
+    const b = await captureOnce(w.id, `${site.url}/gallery`);
+    expect(a.data.textBlocks.some((t) => t.text === "Slide A")).toBe(true); // first slide shown
+    const r = await comparePagePair(a.page, b.page, w.settings, { before: [], after: [] }, "test/slider");
+    expect(r.detected).toEqual([]);
+  }, 120_000);
+
+  it("'Ignore image sliders & carousels' hides sliders that cannot be frozen", async () => {
+    const repo = getRepo();
+    const w = await createWebsite({ name: "Promo test", baseUrl: site.url, settings: { ...fastSettings, devices: ["desktop"], checkLinks: false } });
+    const shown = await captureOnce(w.id, `${site.url}/promo`);
+    expect(shown.data.textBlocks.some((t) => t.text.startsWith("Deal of the moment"))).toBe(true);
+    await repo.updateWebsite(w.id, { settings: { ...w.settings, ignoreSliders: true } });
+    const hidden = await captureOnce(w.id, `${site.url}/promo`);
+    expect(hidden.data.textBlocks.some((t) => t.text.startsWith("Deal of the moment"))).toBe(false);
+    expect(hidden.data.textBlocks.some((t) => t.text === "Static promo text.")).toBe(true); // rest of the page still checked
   }, 120_000);
 });
 

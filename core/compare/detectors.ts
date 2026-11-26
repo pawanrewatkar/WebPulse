@@ -281,12 +281,13 @@ export function detectLinks(b: PageData, a: PageData, ctx: DetectContext): Detec
     const check = ctx.linkChecksAfter.get(k);
     if (check && !check.ok) {
       const before = ctx.linkChecksBefore.get(k);
-      const preExisting = !!(old && before && !before.ok);
+      // Already broken when the baseline was saved: not a change (listed once under "existing issues").
+      if (old && before && !before.ok) continue;
       out.push({
         category: "link",
         changeType: "potentially_broken",
-        severity: preExisting ? "low" : "high",
-        description: `${preExisting ? "Broken link (already broken in baseline)" : "Broken link"}: "${l.text || l.href}"`,
+        severity: "high",
+        description: `Broken link: "${l.text || l.href}"`,
         expected: "Link target responds with HTTP 2xx/3xx",
         actual: `${l.href} → ${check.status ? `HTTP ${check.status}` : check.error ?? "request failed"}`,
         selector: l.selector,
@@ -334,8 +335,9 @@ export function detectStructure(b: PageData, a: PageData): Detected[] {
   const hunks = diffSequences(b.outline, a.outline, (x) => x);
   const removed = hunks.reduce((n, h) => n + h.removed.length, 0);
   const added = hunks.reduce((n, h) => n + h.added.length, 0);
-  if (removed + added < 2) return [];
   const ratio = (removed + added) / Math.max(1, b.outline.length);
+  // Ignore tiny fluctuations (e.g. one slider item re-rendered) – real structural edits are larger.
+  if (removed + added < 3 || ratio < 0.005) return [];
   const details: string[] = [];
   for (const h of hunks) {
     for (const r of h.removed) details.push(`- ${r}`);

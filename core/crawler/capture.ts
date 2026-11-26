@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { BrowserContext } from "playwright";
 import sharp from "sharp";
-import { buildNoiseCss, EXTRACT_SCRIPT, SETTLE_SCRIPT } from "./extract";
+import { buildNoiseCss, EXTRACT_SCRIPT, FREEZE_SLIDERS_SCRIPT, SETTLE_SCRIPT } from "./extract";
 import { errorMessage } from "../logger";
 import { normalizeUrl } from "../security/url";
 import type { PageData, PageStatus } from "../types";
@@ -86,6 +86,9 @@ export async function capturePage(context: BrowserContext, url: string, opts: Ca
 
       await page.addStyleTag({ content: buildNoiseCss(opts.ignoreSelectors) }).catch(() => {});
       await page.evaluate(`(${SETTLE_SCRIPT})(${opts.maxScreenshotHeight})`).catch(() => {});
+      // Show every slider on its first slide so each visit captures the same image.
+      const frozen = (await page.evaluate(`(${FREEZE_SLIDERS_SCRIPT})()`).catch(() => 0)) as number;
+      if (frozen > 0) await page.waitForTimeout(1500); // let the slide transition finish
       if (opts.waitAfterLoadMs) await page.waitForTimeout(opts.waitAfterLoadMs);
 
       const data = (await page.evaluate(`(${EXTRACT_SCRIPT})(${JSON.stringify({ ignoreSelectors: opts.ignoreSelectors, requestedUrl: url })})`)) as PageData;

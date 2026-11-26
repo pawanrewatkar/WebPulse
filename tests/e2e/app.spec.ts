@@ -28,7 +28,7 @@ test("dashboard loads and shows the worker is online", async ({ page }) => {
 test("rejects SSRF targets when adding a website", async ({ page }) => {
   await page.goto("/websites/new");
   await page.getByLabel("Name").fill("Metadata attack");
-  await page.getByLabel("Base URL").fill("http://169.254.169.254/latest/meta-data");
+  await page.getByLabel("Website URL").fill("http://169.254.169.254/latest/meta-data");
   await page.getByRole("button", { name: "Create website" }).click();
   await expect(page.getByText(/private\/internal address/)).toBeVisible();
 });
@@ -36,12 +36,13 @@ test("rejects SSRF targets when adding a website", async ({ page }) => {
 test("add website and save a baseline (desktop + mobile)", async ({ page }) => {
   await page.goto("/websites/new");
   await page.getByLabel("Name").fill("Fixture Shop");
-  await page.getByLabel("Base URL").fill(SITE);
-  await page.getByLabel("Max pages").fill("15");
-  await page.getByLabel("Delay between pages (ms)").fill("0");
-  await page.getByLabel("Page timeout (ms)").fill("5000");
+  await page.getByLabel("Website URL").fill(SITE);
+  await page.getByLabel("Limit to").check();
+  await page.getByLabel("Number of pages").fill("15");
+  await page.getByLabel("Delay (sec)").fill("0");
+  await page.getByLabel("Timeout (sec)").fill("5");
   await page.getByLabel("Retries").fill("0");
-  await page.getByLabel("Settle wait (ms)").fill("100");
+  await page.getByLabel("Settle wait (sec)").fill("0.1");
   await page.getByRole("button", { name: "Create website" }).click();
   await expect(page.getByRole("heading", { name: "Fixture Shop" })).toBeVisible();
   websiteUrl = page.url();
@@ -86,10 +87,17 @@ test("compare website after changes: removed vs crawl-failed, review, reports", 
   await page.getByRole("button", { name: "Compare Website" }).click();
   await waitForJob(page);
   await page.getByRole("link", { name: /Open comparison results/ }).click();
-  await expect(page.getByRole("heading", { name: /Comparison #\d+/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Fixture Shop – compared/ })).toBeVisible();
 
   const summary = page.locator("table").first();
   await expect(summary.locator("tr", { hasText: "/about" }).first().getByText("Removed (404/410)")).toBeVisible();
+  // Page summary is paginated (10 per page, S.No. continues): /slow is on page 2.
+  const pager = page.getByRole("navigation", { name: "Pagination" }).first();
+  await expect(pager).toContainText(/Page 1 of [2-9]/);
+  await expect(summary.locator("tbody tr").first().locator("td").first()).toHaveText("1");
+  await pager.getByRole("button", { name: "Next →" }).click();
+  await expect(pager).toContainText(/Page 2 of [2-9]/);
+  await expect(summary.locator("tbody tr").first().locator("td").first()).toHaveText("11");
   await expect(summary.locator("tr", { hasText: "/slow" }).first().getByText("Crawl failed – not verified")).toBeVisible();
   await expect(page.getByText(/could not be loaded during the current crawl/).first()).toBeVisible();
 
@@ -97,6 +105,11 @@ test("compare website after changes: removed vs crawl-failed, review, reports", 
   await page.getByLabel("Category").selectOption("cta");
   const item = page.getByTestId("change-item").filter({ hasText: 'Button/CTA "Contact Sales" removed' }).first();
   await expect(item).toBeVisible();
+  // Plain-language card with before/now pictures and advice
+  await expect(item.getByText("Button removed", { exact: true })).toBeVisible();
+  await expect(item.getByText("Before (saved baseline)")).toBeVisible();
+  await expect(item.getByText("What to do:")).toBeVisible();
+  await expect(item.getByAltText("Before")).toBeVisible();
   await item.getByRole("button", { name: "Confirm" }).click();
   await expect(item.locator(".badge", { hasText: "confirmed" })).toBeVisible();
 
@@ -112,7 +125,7 @@ test("compare website after changes: removed vs crawl-failed, review, reports", 
 
 test("manual comparison in the explorer: baseline page vs comparison capture", async ({ page }) => {
   await page.goto("/comparisons");
-  await page.getByRole("link", { name: /^#\d+$/ }).first().click();
+  await page.locator("tbody tr").first().getByRole("link").first().click(); // "Compared on" date links to the results
   await page.getByRole("link", { name: "Open in Explorer" }).click();
   await page.getByRole("list", { name: "Captured pages" }).getByRole("button", { name: /\/products/ }).click();
   await expect(page.getByText(/difference\(s\)/)).toBeVisible({ timeout: 60_000 });
@@ -138,4 +151,23 @@ test("version history: new baseline needs confirmation, old version can be resto
   await expect(v2.getByText("partial")).toBeVisible();
   await expect(v2.getByText("2 page capture(s) failed")).toBeVisible();
   await expect(v2.getByRole("button", { name: "Restore as active" })).toBeVisible();
+});
+
+test("delete website: requires typing the name, then removes it everywhere", async ({ page }) => {
+  await page.goto(websiteUrl);
+  await page.getByRole("button", { name: "Delete website" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("cannot be undone");
+  const confirm = dialog.getByRole("button", { name: "Delete permanently" });
+  await expect(confirm).toBeDisabled();
+  await dialog.getByLabel("Type the website name to confirm").fill("Fixture");
+  await expect(confirm).toBeDisabled(); // must match exactly
+  await dialog.getByLabel("Type the website name to confirm").fill("Fixture Shop");
+  await confirm.click();
+  await expect(page).toHaveURL(/\/websites$/);
+  await expect(page.getByText("No websites configured yet.")).toBeVisible();
+  await page.goto("/comparisons");
+  await expect(page.getByText("No comparisons yet.")).toBeVisible();
+  const res = await page.request.get(websiteUrl);
+  expect(res.status()).toBe(404);
 });

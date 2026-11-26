@@ -24,9 +24,9 @@ export default function WorkerStatus() {
   }, []);
   if (!state) return null;
   if (state.workers.length > 0)
-    return <div className="mb-4 text-xs text-green-700">● Worker online{state.queuedJobs ? ` · ${state.queuedJobs} job(s) queued` : ""}</div>;
+    return <div className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />Worker online{state.queuedJobs ? ` · ${state.queuedJobs} job(s) queued` : ""}</div>;
   return (
-    <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
       <strong>Background worker is not running.</strong> Crawls and comparisons will stay queued until you start it in a second terminal:{" "}
       <code className="rounded bg-amber-100 px-1">npm run worker</code>
       {state.queuedJobs ? ` (${state.queuedJobs} job(s) waiting)` : ""}

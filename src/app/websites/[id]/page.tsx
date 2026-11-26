@@ -5,6 +5,8 @@ import { Empty, PageHeader, StatusBadge } from "@/components/ui";
 import WebsiteActions, { RestoreBaselineButton } from "@/components/WebsiteActions";
 import WorkerStatus from "@/components/WorkerStatus";
 import IgnoreRules from "@/components/IgnoreRules";
+import DeleteWebsiteButton from "@/components/DeleteWebsiteButton";
+import PaginatedTable from "@/components/Paginated";
 import { fmtDate, fmtDuration } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +20,7 @@ export default async function WebsitePage({ params }: { params: Promise<{ id: st
     repo.listRuns(id),
     repo.listComparisons(id),
     repo.hasActiveJob(id),
-    repo.listJobs({ websiteId: id, limit: 10 }),
+    repo.listJobs({ websiteId: id, limit: 200 }),
   ]);
   const baselines = runs.filter((r) => r.kind === "baseline");
   const otherRuns = runs.filter((r) => r.kind !== "baseline");
@@ -35,6 +37,7 @@ export default async function WebsitePage({ params }: { params: Promise<{ id: st
           <>
             <Link className="btn" href={`/explorer?website=${id}`}>Baseline Explorer</Link>
             <Link className="btn" href={`/websites/${id}/edit`}>Settings</Link>
+            <DeleteWebsiteButton websiteId={id} name={website.name} baselines={baselines.length} comparisons={comparisons.length} busy={!!activeJob} />
           </>
         }
       />
@@ -42,7 +45,7 @@ export default async function WebsitePage({ params }: { params: Promise<{ id: st
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
         <span>Access: <strong>{s.auth ? `Login (${website.credentialsUsername ?? "no credentials"})` : "Public"}</strong></span>
         <span>Devices: <strong>{s.devices.join(", ")}</strong></span>
-        <span>Max pages: <strong>{s.maxPages}</strong> · depth <strong>{s.maxDepth}</strong></span>
+        <span>Pages: <strong>{s.maxPages >= 1000 ? "Whole website" : `up to ${s.maxPages} (link depth ${s.maxDepth})`}</strong></span>
         <span>Discovery: <strong>{[s.useSitemap && "sitemap", s.followLinks && "links"].filter(Boolean).join(" + ") || "manual only"}</strong></span>
         {s.includeUrls.length > 0 && <span>Manual URLs: <strong>{s.includeUrls.length}</strong></span>}
         {s.excludePatterns.length > 0 && <span>Exclusions: <strong>{s.excludePatterns.length}</strong></span>}
@@ -59,80 +62,79 @@ export default async function WebsitePage({ params }: { params: Promise<{ id: st
 
       <section>
         <h2 className="mb-2 font-semibold">Baseline versions</h2>
-        <div className="card overflow-x-auto">
-          <table className="tbl">
-            <thead><tr><th>Version</th><th>Label</th><th>Status</th><th>Pages</th><th>Captured</th><th>Duration</th><th></th></tr></thead>
-            <tbody>
-              {baselines.map((b) => (
-                <tr key={b.id}>
-                  <td className="font-medium">v{b.version} {b.id === website.activeBaselineId && <span className="badge ml-1 bg-blue-100 text-blue-800">active</span>}</td>
-                  <td>{b.label ?? "—"}</td>
-                  <td><StatusBadge status={b.status} />{b.error && <div className="mt-1 max-w-xs text-xs text-red-700">{b.error}</div>}</td>
-                  <td title="page × device captures">{b.stats.captured ?? 0} captures{b.stats.failed ? <span className="text-red-700"> · {b.stats.failed} failed</span> : null}{b.stats.httpErrors ? <span className="text-orange-700"> · {b.stats.httpErrors} HTTP err</span> : null}</td>
-                  <td className="whitespace-nowrap text-gray-600">{fmtDate(b.finishedAt ?? b.createdAt)}</td>
-                  <td>{fmtDuration(b.stats.durationMs)}</td>
-                  <td className="space-x-2 whitespace-nowrap text-right">
-                    {(b.status === "completed" || b.status === "partial") && (
-                      <>
-                        <Link className="btn py-0.5 text-xs" href={`/explorer?website=${id}&run=${b.id}`}>Explore</Link>
-                        {b.id !== website.activeBaselineId && <RestoreBaselineButton websiteId={id} runId={b.id} version={b.version} />}
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!baselines.length && <div className="p-4"><Empty>No baselines yet. Use “Save Website” to capture the first one.</Empty></div>}
-        </div>
+        <PaginatedTable
+          label="baseline versions"
+          headers={["Version", "Label", "Status", "Pages", "Captured", "Duration", ""]}
+          rows={baselines.map((b) => ({
+            key: b.id,
+            cells: (
+              <>
+                <td className="font-medium">v{b.version} {b.id === website.activeBaselineId && <span className="badge ml-1 bg-blue-100 text-blue-800">active</span>}</td>
+                <td>{b.label ?? "—"}</td>
+                <td><StatusBadge status={b.status} />{b.error && <div className="mt-1 max-w-xs text-xs text-red-700">{b.error}</div>}</td>
+                <td title="page × device captures">{b.stats.captured ?? 0} captures{b.stats.failed ? <span className="text-red-700"> · {b.stats.failed} failed</span> : null}{b.stats.httpErrors ? <span className="text-orange-700"> · {b.stats.httpErrors} HTTP err</span> : null}</td>
+                <td className="whitespace-nowrap text-gray-600">{fmtDate(b.finishedAt ?? b.createdAt)}</td>
+                <td>{fmtDuration(b.stats.durationMs)}</td>
+                <td className="space-x-2 whitespace-nowrap text-right">
+                  {(b.status === "completed" || b.status === "partial") && (
+                    <>
+                      <Link className="btn py-0.5 text-xs" href={`/explorer?website=${id}&run=${b.id}`}>Explore</Link>
+                      {b.id !== website.activeBaselineId && <RestoreBaselineButton websiteId={id} runId={b.id} version={b.version} />}
+                    </>
+                  )}
+                </td>
+              </>
+            ),
+          }))}
+          empty={<Empty>No baselines yet. Use “Save Website” to capture the first one.</Empty>}
+        />
       </section>
 
       <section>
         <h2 className="mb-2 font-semibold">Comparisons</h2>
-        <div className="card overflow-x-auto">
-          <table className="tbl">
-            <thead><tr><th>#</th><th>Baseline</th><th>Status</th><th>Changes</th><th>Pages changed</th><th>Failed</th><th>Date</th></tr></thead>
-            <tbody>
-              {comparisons.map((c) => {
-                const b = baselines.find((r) => r.id === c.baselineRunId);
-                return (
-                  <tr key={c.id}>
-                    <td><Link href={`/comparisons/${c.id}`} className="font-medium text-blue-700 hover:underline">#{c.id}</Link></td>
-                    <td>v{b?.version ?? "?"}</td>
-                    <td><StatusBadge status={c.status} /></td>
-                    <td>{c.summary?.totalChanges ?? "—"}</td>
-                    <td>{c.summary ? `${c.summary.pagesChanged} / ${c.summary.pagesCompared}` : "—"}</td>
-                    <td>{c.summary?.pagesFailed ? <span className="text-red-700">{c.summary.pagesFailed}</span> : 0}</td>
-                    <td className="text-gray-600">{fmtDate(c.createdAt)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {!comparisons.length && <div className="p-4"><Empty>No comparisons yet.</Empty></div>}
-        </div>
+        <PaginatedTable
+          label="comparisons"
+          headers={["Compared on", "Baseline", "Status", "Changes", "Pages changed", "Failed"]}
+          rows={comparisons.map((c) => {
+            const b = baselines.find((r) => r.id === c.baselineRunId);
+            return {
+              key: c.id,
+              cells: (
+                <>
+                  <td className="whitespace-nowrap"><Link href={`/comparisons/${c.id}`} className="font-medium text-blue-700 hover:underline" title="Open comparison results">{fmtDate(c.createdAt)}</Link></td>
+                  <td>v{b?.version ?? "?"}</td>
+                  <td><StatusBadge status={c.status} /></td>
+                  <td>{c.summary?.totalChanges ?? "—"}</td>
+                  <td>{c.summary ? `${c.summary.pagesChanged} / ${c.summary.pagesCompared}` : "—"}</td>
+                  <td>{c.summary?.pagesFailed ? <span className="text-red-700">{c.summary.pagesFailed}</span> : 0}</td>
+                </>
+              ),
+            };
+          })}
+          empty={<Empty>No comparisons yet.</Empty>}
+        />
       </section>
 
       {otherRuns.length > 0 && (
         <section>
           <h2 className="mb-2 font-semibold">Other captures (comparison crawls & manual captures)</h2>
-          <div className="card overflow-x-auto">
-            <table className="tbl">
-              <thead><tr><th>Run</th><th>Kind</th><th>Status</th><th>Pages</th><th>Date</th><th></th></tr></thead>
-              <tbody>
-                {otherRuns.slice(0, 20).map((r) => (
-                  <tr key={r.id}>
-                    <td>#{r.id}</td>
-                    <td>{r.kind}</td>
-                    <td><StatusBadge status={r.status} /></td>
-                    <td>{r.stats.captured ?? 0}{r.stats.failed ? ` · ${r.stats.failed} failed` : ""}</td>
-                    <td className="text-gray-600">{fmtDate(r.createdAt)}</td>
-                    <td className="text-right"><Link className="btn py-0.5 text-xs" href={`/explorer?website=${id}&run=${r.id}`}>Explore</Link></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <PaginatedTable
+            label="captures"
+            headers={["Run ID", "Kind", "Status", "Pages", "Date", ""]}
+            rows={otherRuns.map((r) => ({
+              key: r.id,
+              cells: (
+                <>
+                  <td>#{r.id}</td>
+                  <td>{r.kind}</td>
+                  <td><StatusBadge status={r.status} /></td>
+                  <td>{r.stats.captured ?? 0}{r.stats.failed ? ` · ${r.stats.failed} failed` : ""}</td>
+                  <td className="text-gray-600">{fmtDate(r.createdAt)}</td>
+                  <td className="text-right"><Link className="btn py-0.5 text-xs" href={`/explorer?website=${id}&run=${r.id}`}>Explore</Link></td>
+                </>
+              ),
+            }))}
+          />
         </section>
       )}
 
@@ -140,23 +142,22 @@ export default async function WebsitePage({ params }: { params: Promise<{ id: st
 
       <section>
         <h2 className="mb-2 font-semibold">Recent jobs</h2>
-        <div className="card overflow-x-auto">
-          <table className="tbl">
-            <thead><tr><th>Job</th><th>Type</th><th>Status</th><th>Message</th><th>Created</th></tr></thead>
-            <tbody>
-              {jobs.map((j) => (
-                <tr key={j.id}>
-                  <td><Link className="text-blue-700 hover:underline" href={`/jobs/${j.id}`}>#{j.id}</Link></td>
-                  <td>{j.type}</td>
-                  <td><StatusBadge status={j.status} /></td>
-                  <td className="max-w-lg truncate text-gray-600">{j.error ?? j.message}</td>
-                  <td className="text-gray-500">{fmtDate(j.createdAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!jobs.length && <div className="p-4"><Empty>No jobs yet.</Empty></div>}
-        </div>
+        <PaginatedTable
+          label="jobs"
+          headers={["Type", "Status", "Message", "Created"]}
+          rows={jobs.map((j) => ({
+            key: j.id,
+            cells: (
+              <>
+                <td>{j.type}</td>
+                <td><StatusBadge status={j.status} /></td>
+                <td className="max-w-lg truncate"><Link href={`/jobs/${j.id}`} className="text-blue-700 hover:underline" title="Open job details and log">{j.error ?? j.message ?? "View details"}</Link></td>
+                <td className="text-gray-500">{fmtDate(j.createdAt)}</td>
+              </>
+            ),
+          }))}
+          empty={<Empty>No jobs yet.</Empty>}
+        />
       </section>
     </div>
   );

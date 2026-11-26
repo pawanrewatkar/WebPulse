@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getRepo } from "./db";
+import { getStorage, storageKeys } from "./storage";
 import { authSettingsSchema, parseSettings, websiteSettingsSchema } from "./settings";
 import { assertSafeUrl, normalizeUrl, UrlValidationError } from "./security/url";
 import type { Device, Job, Website } from "./types";
@@ -82,7 +83,7 @@ function buildSettings(partial: Record<string, unknown>, auth: unknown) {
 
 async function ensureNoActiveJob(websiteId: number) {
   const active = await getRepo().hasActiveJob(websiteId);
-  if (active) throw new ServiceError(`Job #${active.id} (${active.type}) is already ${active.status} for this website. Wait for it to finish or cancel it.`, 409);
+  if (active) throw new ServiceError(`A ${active.type} job is already ${active.status} for this website. Wait for it to finish or cancel it.`, 409);
 }
 
 async function requireWebsite(id: number) {
@@ -155,6 +156,33 @@ export async function restoreBaseline(websiteId: number, runId: number) {
   } catch (e) {
     throw new ServiceError((e as Error).message);
   }
+}
+
+/**
+ * Permanently deletes a website with all its baselines, comparisons, captures and reports.
+ * Requires the exact website name as confirmation and no running/queued job for the site.
+ */
+export async function deleteWebsite(websiteId: number, confirmName: string): Promise<{ deletedRuns: number; deletedComparisons: number }> {
+  const w = await requireWebsite(websiteId);
+  if ((confirmName ?? "").trim() !== w.name.trim()) throw new ServiceError("Confirmation does not match the website name. Nothing was deleted.");
+  const active = await getRepo().hasActiveJob(websiteId);
+  if (active) throw new ServiceError(`A ${active.type} job is ${active.status} for this website. Cancel it or wait for it to finish before deleting.`, 409);
+
+  const { runIds, comparisonIds, pageIds } = await getRepo().deleteWebsite(websiteId);
+
+  // Stored files: best effort after the database rows are gone (a leftover file is harmless, a dangling row is not).
+  const storage = getStorage();
+  const pageSet = new Set(pageIds.map(String));
+  const removals: Promise<void>[] = [
+    ...runIds.map((id) => storage.remove(`runs/${id}`)),
+    ...comparisonIds.flatMap((id) => [storage.remove(storageKeys.comparison(id)), storage.remove(storageKeys.report(id, "xlsx")), storage.remove(storageKeys.report(id, "pdf"))]),
+  ];
+  for (const dir of await storage.list("manual")) {
+    const [a, b] = dir.split("-");
+    if (pageSet.has(a) || pageSet.has(b)) removals.push(storage.remove(`manual/${dir}`));
+  }
+  await Promise.allSettled(removals);
+  return { deletedRuns: runIds.length, deletedComparisons: comparisonIds.length };
 }
 
 /** Shape sent to the browser: never includes credentials. */

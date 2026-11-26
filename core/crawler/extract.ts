@@ -37,6 +37,52 @@ export const SETTLE_SCRIPT = String.raw`(async (maxHeight) => {
   return document.documentElement.scrollHeight;
 })`;
 
+/**
+ * Stops autoplaying sliders/carousels and shows their first slide, so every visit captures the same
+ * slide while the slider itself is still checked. Best effort per library; returns how many were frozen.
+ */
+export const FREEZE_SLIDERS_SCRIPT = String.raw`(() => {
+  let frozen = 0;
+  const attempt = (fn) => { try { if (fn() !== false) frozen++; } catch (e) {} };
+  const $ = window.jQuery;
+
+  // Smart Slider 3: pick the slide with the lowest public id (stable even when slides are shuffled).
+  document.querySelectorAll('.n2-ss-slider').forEach((el) => attempt(() => {
+    const ss = el.ss; if (!ss) return false;
+    if (ss.pauseAutoplay) ss.pauseAutoplay();
+    const pid = (s) => Number(s.getAttribute('data-slide-public-id') || 1e9);
+    const target = Array.from(el.querySelectorAll('.n2-ss-slide')).sort((a, b) => pid(a) - pid(b))[0];
+    const list = ss.slides || ss.realSlides || [];
+    const idx = list.findIndex((s) => s.element === target || s.$element === target);
+    ss.slide(idx >= 0 ? idx : 0);
+  }));
+
+  // Swiper (Elementor carousels/slides and many themes).
+  document.querySelectorAll('.swiper, .swiper-container').forEach((el) => attempt(() => {
+    const sw = el.swiper; if (!sw) return false;
+    if (sw.autoplay && sw.autoplay.stop) sw.autoplay.stop();
+    if (sw.params && sw.params.loop && sw.slideToLoop) sw.slideToLoop(0, 0, false); else sw.slideTo(0, 0, false);
+  }));
+
+  if ($) {
+    // Slick
+    $('.slick-initialized').each(function () { attempt(() => { $(this).slick('slickPause'); $(this).slick('slickGoTo', 0, true); }); });
+    // Owl Carousel
+    $('.owl-carousel.owl-loaded').each(function () { attempt(() => { $(this).trigger('stop.owl.autoplay'); $(this).trigger('to.owl.carousel', [0, 0]); }); });
+    // FlexSlider / MetaSlider
+    $('.flexslider').each(function () { attempt(() => { const f = $(this).data('flexslider'); if (!f) return false; f.pause(); f.flexAnimate(0, false, true); }); });
+    // Slider Revolution (v5/v6)
+    $('.rev_slider, rs-module').each(function () { attempt(() => { if (!$(this).revpause) return false; $(this).revpause(); $(this).revshowslide(1); }); });
+  }
+  // Flickity
+  if (window.Flickity) document.querySelectorAll('.flickity-enabled').forEach((el) => attempt(() => { const f = window.Flickity.data(el); if (!f) return false; f.stopPlayer && f.stopPlayer(); f.select(0, false, true); }));
+  // Bootstrap carousel
+  if (window.bootstrap && window.bootstrap.Carousel) document.querySelectorAll('.carousel').forEach((el) => attempt(() => { const c = window.bootstrap.Carousel.getOrCreateInstance(el); c.pause(); c.to(0); }));
+  // Splide
+  document.querySelectorAll('.splide.is-initialized').forEach((el) => attempt(() => { const s = el.splide; if (!s) return false; if (s.Components && s.Components.Autoplay) s.Components.Autoplay.pause(); s.go(0); }));
+  return frozen;
+})`;
+
 /** Extracts structured page data. Called as `(${EXTRACT_SCRIPT})(options)`. Returns PageData. */
 export const EXTRACT_SCRIPT = String.raw`((opts) => {
   const MAX = 3000;
